@@ -63,7 +63,9 @@ final class CacheFont
         {
             return;
         }
-        double size = Math.min(scale, (double) maxWidth / width);
+        // Keep small glyphs at their native pixel size when the line has room.
+        double nativeSize = 1 / graphics.getTransform().getScaleX();
+        double size = Math.min(Math.max(scale, nativeSize), (double) maxWidth / width);
         BufferedImage atlas = colors.computeIfAbsent(color, this::tint);
         Graphics2D g = (Graphics2D) graphics.create();
         try

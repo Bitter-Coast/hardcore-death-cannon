@@ -13,7 +13,7 @@ public interface DeathCannonConfig extends Config
         description = "Play for broadcasts with a total level strictly above this value.", position = 0)
     default int threshold()
     {
-        return 500;
+        return 250;
     }
 
     @Range(min = 0, max = 100)
