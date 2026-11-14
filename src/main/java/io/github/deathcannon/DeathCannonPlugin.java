@@ -21,6 +21,7 @@ import net.runelite.api.GameState;
 import net.runelite.api.Player;
 import net.runelite.api.WorldType;
 import net.runelite.api.WorldView;
+import net.runelite.api.clan.ClanSettings;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.ClientTick;
@@ -207,35 +208,42 @@ public final class DeathCannonPlugin extends Plugin
         }
 
         DeathBroadcast death = DeathBroadcast.parse(event.getMessage());
-        if (death != null && death.level > config.threshold())
+        if (death == null || death.level <= config.threshold())
         {
-            PlayerSighting current = captureSighting(findPlayer(death.player));
-            if (current != null)
-            {
-                remember(nameKey(death.player), current);
-            }
-            DeathBroadcast memorial = current != null ? death.withSighting(current, false)
-                : death.withSighting(sightings.get(nameKey(death.player)), true);
-            pending.add(memorial);
-            playNext();
-            rememberReplay(event.getMessage(), memorial);
-            if (config.compactPopup())
-            {
-                return;
-            }
-            hiscores.lookupAsync(death.player.replace('_', ' '), HiscoreEndpoint.HARDCORE_MAIN)
-                .whenComplete((result, error) ->
-                {
-                    if (error == null)
-                    {
-                        memorial.topSkill = TopSkill.fromHiscores(result);
-                    }
-                    else
-                    {
-                        LOG.debug("Could not look up the Hardcore Worlds top skill", error);
-                    }
-                });
+            return;
         }
+        boolean clanmate = isClanmate(death.player);
+        if (config.clanOnly() && !clanmate)
+        {
+            return;
+        }
+        death = death.withClanmate(clanmate);
+        PlayerSighting current = captureSighting(findPlayer(death.player));
+        if (current != null)
+        {
+            remember(nameKey(death.player), current);
+        }
+        DeathBroadcast memorial = current != null ? death.withSighting(current, false)
+            : death.withSighting(sightings.get(nameKey(death.player)), true);
+        pending.add(memorial);
+        playNext();
+        rememberReplay(event.getMessage(), memorial);
+        if (config.compactPopup())
+        {
+            return;
+        }
+        hiscores.lookupAsync(death.player.replace('_', ' '), HiscoreEndpoint.HARDCORE_MAIN)
+            .whenComplete((result, error) ->
+            {
+                if (error == null)
+                {
+                    memorial.topSkill = TopSkill.fromHiscores(result);
+                }
+                else
+                {
+                    LOG.debug("Could not look up the Hardcore Worlds top skill", error);
+                }
+            });
     }
 
     private void rememberReplay(String originalMessage, DeathBroadcast memorial)
@@ -289,7 +297,7 @@ public final class DeathCannonPlugin extends Plugin
                         }
                     }
                 }
-                if (memorial != null)
+                if (memorial != null && (!config.clanOnly() || memorial.clanmate))
                 {
                     active = null;
                     pending.addFirst(memorial);
@@ -312,6 +320,7 @@ public final class DeathCannonPlugin extends Plugin
                 return;
             }
             DeathBroadcast preview = DeathBroadcast.preview(local.getName(), client.getTotalLevel())
+                .withClanmate(isClanmate(local.getName()))
                 .withSighting(captureSighting(local), false);
             preview.topSkill = TopSkill.fromLocalPlayer(client);
             pending.add(preview);
@@ -343,6 +352,13 @@ public final class DeathCannonPlugin extends Plugin
             }
         }
         return null;
+    }
+
+    private boolean isClanmate(String name)
+    {
+        ClanSettings clan = client.getClanSettings();
+        String key = nameKey(name);
+        return clan != null && clan.getMembers().stream().anyMatch(member -> key.equals(nameKey(member.getName())));
     }
 
     private static String nameKey(String name)
@@ -521,9 +537,30 @@ public final class DeathCannonPlugin extends Plugin
             int popupSeconds = Math.max(1, Math.min(15, config.popupSeconds()));
             durationMs = TimeUnit.SECONDS.toMillis(popupSeconds);
             startedAt = System.nanoTime();
-            audio.play(config.volume(), config.cannonSound(), config.memorialMusic(), popupSeconds);
+            playMemorialSounds(popupSeconds);
         }
         active = next;
+    }
+
+    private void playMemorialSounds(int popupSeconds)
+    {
+        int volume = Math.min(100, config.volume());
+        if (volume <= 0)
+        {
+            return;
+        }
+        int fallbackVolume = Math.max(1, volume * 127 / 100);
+        int cannon = config.cannonSoundId();
+        int memorial = config.memorialSoundId();
+        audio.play(volume, config.cannonSound() && cannon < 0, config.memorialMusic() && memorial < 0, popupSeconds);
+        if (config.cannonSound() && cannon >= 0)
+        {
+            client.playSoundEffect(cannon, fallbackVolume);
+        }
+        if (config.memorialMusic() && memorial >= 0)
+        {
+            client.playSoundEffect(memorial, fallbackVolume);
+        }
     }
 
     long durationMs()

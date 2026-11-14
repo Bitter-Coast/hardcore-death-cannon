@@ -18,7 +18,7 @@ public interface DeathCannonConfig extends Config
 
     @Range(min = 0, max = 100)
     @ConfigItem(keyName = "volume", name = "Volume",
-        description = "Cannon and music volume. Set to 0 for a silent animation.", position = 1)
+        description = "Volume for the original cues. Custom cues use this when game sound effects are muted. Set to 0 for silence.", position = 1)
     default int volume()
     {
         return 45;
@@ -41,7 +41,7 @@ public interface DeathCannonConfig extends Config
     }
 
     @ConfigItem(keyName = "compactPopup", name = "Compact gravestone",
-        description = "Show only the player name and total level on the gravestone.", position = 4)
+        description = "Show the player name, total level, and any clanmate label on the gravestone.", position = 4)
     default boolean compactPopup()
     {
         return false;
@@ -59,5 +59,28 @@ public interface DeathCannonConfig extends Config
     default boolean memorialMusic()
     {
         return true;
+    }
+
+    @Range(min = -1, max = 65535)
+    @ConfigItem(keyName = "cannonSoundId", name = "Cannon sound ID",
+        description = "OSRS sound effect ID. Set to -1 for the original cannon sound.", position = 7)
+    default int cannonSoundId()
+    {
+        return -1;
+    }
+
+    @Range(min = -1, max = 65535)
+    @ConfigItem(keyName = "memorialSoundId", name = "Memorial sound ID",
+        description = "OSRS sound effect ID. Set to -1 for the original memorial music.", position = 8)
+    default int memorialSoundId()
+    {
+        return -1;
+    }
+
+    @ConfigItem(keyName = "clanOnly", name = "Clan only",
+        description = "Only show death memorials for members of your own clan.", position = 9)
+    default boolean clanOnly()
+    {
+        return false;
     }
 }

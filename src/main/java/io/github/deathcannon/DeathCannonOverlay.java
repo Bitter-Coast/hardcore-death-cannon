@@ -30,6 +30,7 @@ final class DeathCannonOverlay extends Overlay
     private static final int COMPACT_SIZE = 128;
     private static final int CARD_RESOLUTION = 2;
     private static final Color INK = new Color(35, 24, 13);
+    private static final Color CLANMATE = new Color(21, 61, 106);
     private static final Color RED = new Color(135, 24, 9);
     private static final Color WHITE = new Color(255, 251, 239);
     private static final CacheFont REGULAR = new CacheFont("regular");
@@ -120,13 +121,17 @@ final class DeathCannonOverlay extends Overlay
             g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
             g.drawImage(grave, 0, 0, size, size, null);
             // Use the cache sprite's blank stone strip as the face for the two inscription lines.
-            g.drawImage(grave, at(size, 22), at(size, 58), at(size, 106), at(size, 108),
+            g.drawImage(grave, at(size, 22), at(size, death.clanmate ? 50 : 58), at(size, 106), at(size, 108),
                 11, 28, 53, 29, null);
             int textWidth = at(size, 78);
             int textScale = size >= 166 ? 2 : 1;
             CacheFont nameFont = BOLD.width(death.player) * textScale <= textWidth ? BOLD : REGULAR;
             nameFont.draw(g, INK, death.player, size / 2, at(size, 79), textScale, textWidth, true);
             REGULAR.draw(g, INK, death.levelText, size / 2, at(size, 100), textScale, textWidth, true);
+            if (death.clanmate)
+            {
+                BOLD.draw(g, INK, "Clanmate", size / 2, at(size, 63), 1, textWidth, true);
+            }
         }
         finally
         {
@@ -150,24 +155,28 @@ final class DeathCannonOverlay extends Overlay
             g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
             g.scale(CARD_RESOLUTION, CARD_RESOLUTION);
             g.drawImage(SCROLL, 0, 0, WIDTH, HEIGHT, null);
-            g.drawImage(grave, 181, 17, 34, 34, null);
-            REGULAR.draw(g, WHITE, death.player, 198, 86, 2.75, 235, true);
-            REGULAR.draw(g, RED, "has fallen", 198, 119, 1.7, 112, true);
-            drawStat(g, TOTAL, death.levelText, 126);
+            g.drawImage(grave, 181, 26, 34, 34, null);
+            REGULAR.draw(g, WHITE, death.player, 198, 95, 2.75, 235, true);
+            REGULAR.draw(g, RED, "has fallen", 198, 128, 1.7, 112, true);
+            if (death.clanmate)
+            {
+                BOLD.draw(g, CLANMATE, "Clanmate", 198, 23, 1.4, 100, true);
+            }
+            drawStat(g, TOTAL, death.levelText, 135);
             if (top != null)
             {
-                drawStat(g, ICONS.get(top.skill), Integer.toString(top.level), 151);
+                drawStat(g, ICONS.get(top.skill), Integer.toString(top.level), 160);
             }
 
             PlayerSighting sighting = death.sighting;
             if (sighting != null)
             {
                 ZonedDateTime when = sighting.time.atZone(ZoneId.systemDefault());
-                BOLD.draw(g, INK, death.lastSeen ? "Last seen" : "Seen", 36, 137, 1.5, 123, false);
-                REGULAR.draw(g, WHITE, SEEN_DATE.format(when), 36, 163, 1.85, 123, false);
-                BOLD.draw(g, INK, "World", 36, 188, 1.55, 52, false);
-                REGULAR.draw(g, WHITE, Integer.toString(sighting.world), 92, 188, 1.85, 68, false);
-                REGULAR.draw(g, WHITE, sighting.displayLocation(), 36, 207, 1.65, 123, false);
+                BOLD.draw(g, INK, death.lastSeen ? "Last seen" : "Seen", 28, 128, 1.5, 123, false);
+                REGULAR.draw(g, WHITE, SEEN_DATE.format(when), 28, 154, 1.85, 123, false);
+                BOLD.draw(g, INK, "World", 28, 179, 1.55, 52, false);
+                REGULAR.draw(g, WHITE, Integer.toString(sighting.world), 84, 179, 1.85, 68, false);
+                REGULAR.draw(g, WHITE, sighting.displayLocation(), 28, 198, 1.65, 123, false);
                 drawContained(g, sighting.portrait, 259, 48, 134, 142);
             }
             BOLD.draw(g, INK, death.cause, 198, sighting == null ? 204 : 224, 1.65, 318, true);

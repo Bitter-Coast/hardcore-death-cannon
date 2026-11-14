@@ -9,7 +9,9 @@ When RuneLite receives a Hardcore Worlds death broadcast above your total-level 
 3. In the client, enable **Hardcore Death Cannon**. The default total level threshold is **500**, the volume is **45%**, and the popup stays up for **5 seconds** at **70%** scale. Choose a duration from **1 to 15 seconds** and a scale from **50% to 150%**. The popup shrinks to fit smaller game viewports. A death at level 500 is below the trigger condition. Volume 0 leaves the animation on.
 4. While logged in, enter `::deathcannon` in game chat to preview the effect with your own character model and highest skill on any world. Hold **Alt** and drag the visible popup to move it. RuneLite saves the position. Actual broadcasts trigger on Hardcore Worlds.
 
-Turn on **Compact gravestone** to show just the player name and total level on the cache gravestone sprite. **Cannon sound** and **Memorial music** are separate switches. Both use the **Volume** setting.
+Turn on **Compact gravestone** to show the player name, total level, and any clanmate label on the cache gravestone sprite. **Cannon sound** and **Memorial music** are separate switches. Choose the cues by entering OSRS cache sound effect IDs in **Cannon sound ID** and **Memorial sound ID**. Set either ID to `-1` to use the original cue. Custom cues use your in-game sound effects volume when it is audible and the plugin volume when that setting is muted. Set the plugin volume to 0 to mute both cues. Use the preview command to try your selections.
+
+Memorials mark players on your own clan roster as **Clanmate**. Turn on **Clan only** to limit announcements and replays to clanmates. The same total-level threshold applies.
 
 The full memorial shows the killer and final hit when the broadcast names the killer, or the final hit alone otherwise. Click the original death broadcast in chat to replay the memorial using your current settings. Replay entries are kept for the latest 100 qualifying broadcast texts during the current plugin session.
 

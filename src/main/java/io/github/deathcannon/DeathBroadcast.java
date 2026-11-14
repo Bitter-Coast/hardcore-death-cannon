@@ -22,27 +22,34 @@ final class DeathBroadcast
     final int level;
     final String cause;
     final boolean lastSeen;
+    final boolean clanmate;
     final PlayerSighting sighting;
     volatile TopSkill topSkill;
 
-    private DeathBroadcast(String player, String levelText, int level, String cause, PlayerSighting sighting, boolean lastSeen)
+    private DeathBroadcast(String player, String levelText, int level, String cause, PlayerSighting sighting, boolean lastSeen, boolean clanmate)
     {
         this.player = player;
         this.levelText = levelText;
         this.level = level;
         this.cause = cause;
         this.lastSeen = lastSeen;
+        this.clanmate = clanmate;
         this.sighting = sighting;
     }
 
     DeathBroadcast withSighting(PlayerSighting sighting, boolean lastSeen)
     {
-        return sighting == null ? this : new DeathBroadcast(player, levelText, level, cause, sighting, lastSeen);
+        return sighting == null ? this : new DeathBroadcast(player, levelText, level, cause, sighting, lastSeen, clanmate);
+    }
+
+    DeathBroadcast withClanmate(boolean clanmate)
+    {
+        return clanmate ? new DeathBroadcast(player, levelText, level, cause, sighting, lastSeen, true) : this;
     }
 
     static DeathBroadcast preview(String name, int level)
     {
-        return new DeathBroadcast(name, Integer.toString(level), level, "Goblin (12 damage)", null, false);
+        return new DeathBroadcast(name, Integer.toString(level), level, "Goblin (12 damage)", null, false, false);
     }
 
     static DeathBroadcast parse(String message)
@@ -68,7 +75,7 @@ final class DeathBroadcast
             ? new BigDecimal(display.substring(0, display.length() - 1)).movePointRight(3).intValueExact()
             : Integer.parseInt(display.replace(",", ""));
         return player.isEmpty() || level <= 0 || level > 2376
-            ? null : new DeathBroadcast(player, display, level, cause, null, false);
+            ? null : new DeathBroadcast(player, display, level, cause, null, false, false);
     }
 
     static String plainText(String message)
