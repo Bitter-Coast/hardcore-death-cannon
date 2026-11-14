@@ -1,12 +1,12 @@
 package io.github.deathcannon;
 
+import java.io.ByteArrayInputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import javax.sound.sampled.AudioFormat;
-import javax.sound.sampled.AudioSystem;
-import javax.sound.sampled.Clip;
-import javax.sound.sampled.LineUnavailableException;
+import net.runelite.client.audio.AudioPlayer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,73 +14,73 @@ final class CannonAudio
 {
     private static final Logger LOG = LoggerFactory.getLogger(CannonAudio.class);
     private static final int RATE = 22050;
-    private static final AudioFormat FORMAT = new AudioFormat(RATE, 16, 1, true, false);
+    private static final int BYTES_PER_SAMPLE = Short.BYTES;
 
+    private final AudioPlayer player;
     private final ExecutorService worker = Executors.newSingleThreadExecutor(task ->
     {
         Thread thread = new Thread(task, "Hardcore Death Cannon audio");
         thread.setDaemon(true);
         return thread;
     });
-
-    private Clip clip;
     private final short[][] cues = new short[4][];
 
-    void play(int volume, boolean cannonEnabled, boolean musicEnabled)
+    CannonAudio(AudioPlayer player)
     {
+        this.player = player;
+    }
+
+    void play(int volume, boolean cannonEnabled, boolean musicEnabled, int popupSeconds)
+    {
+        if (volume <= 0 || (!cannonEnabled && !musicEnabled))
+        {
+            return;
+        }
+
         worker.execute(() ->
         {
-            closeClip();
-            if (volume <= 0 || (!cannonEnabled && !musicEnabled))
-            {
-                return;
-            }
-
             int mix = (cannonEnabled ? 1 : 0) | (musicEnabled ? 2 : 0);
             if (cues[mix] == null)
             {
                 cues[mix] = synthesize(cannonEnabled, musicEnabled);
             }
-            short[] cue = cues[mix];
-            byte[] pcm = new byte[cue.length * 2];
-            for (int i = 0; i < cue.length; i++)
+            byte[] wav = encodeWave(cues[mix], volume, popupSeconds);
+            if (Thread.currentThread().isInterrupted())
             {
-                int sample = cue[i] * Math.min(volume, 100) / 100;
-                pcm[2 * i] = (byte) sample;
-                pcm[2 * i + 1] = (byte) (sample >> 8);
+                return;
             }
             try
             {
-                clip = AudioSystem.getClip();
-                clip.open(FORMAT, pcm, 0, pcm.length);
-                clip.start();
+                player.play(new ByteArrayInputStream(wav), 0);
             }
-            catch (LineUnavailableException | IllegalArgumentException ex)
+            catch (Exception ex)
             {
-                closeClip();
                 LOG.debug("Could not play the Hardcore Death Cannon cue", ex);
             }
         });
     }
 
-    void stop()
-    {
-        worker.execute(this::closeClip);
-    }
-
     void close()
     {
-        stop();
-        worker.shutdown();
+        worker.shutdownNow();
     }
 
-    private void closeClip()
+    static byte[] encodeWave(short[] samples, int volume, int popupSeconds)
     {
-        if (clip != null)
+        int sampleCount = Math.min(samples.length, RATE * popupSeconds);
+        int dataSize = sampleCount * BYTES_PER_SAMPLE;
+        ByteBuffer wav = ByteBuffer.allocate(44 + dataSize).order(ByteOrder.LITTLE_ENDIAN);
+        wav.put(new byte[] {'R', 'I', 'F', 'F'}).putInt(36 + dataSize);
+        wav.put(new byte[] {'W', 'A', 'V', 'E', 'f', 'm', 't', ' '}).putInt(16);
+        wav.putShort((short) 1).putShort((short) 1); // PCM, mono
+        wav.putInt(RATE).putInt(RATE * BYTES_PER_SAMPLE);
+        wav.putShort((short) BYTES_PER_SAMPLE).putShort((short) (8 * BYTES_PER_SAMPLE));
+        wav.put(new byte[] {'d', 'a', 't', 'a'}).putInt(dataSize);
+        for (int i = 0; i < sampleCount; i++)
         {
-            clip.close();
-            clip = null;
+            wav.putShort((short) (samples[i] * Math.min(volume, 100) / 100));
         }
+        return wav.array();
     }
 
     static short[] synthesize(boolean cannonEnabled, boolean musicEnabled)

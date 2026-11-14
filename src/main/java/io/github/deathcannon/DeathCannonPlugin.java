@@ -32,6 +32,7 @@ import net.runelite.api.events.PlayerDespawned;
 import net.runelite.api.events.PlayerSpawned;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.Widget;
+import net.runelite.client.audio.AudioPlayer;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
@@ -49,7 +50,7 @@ import org.slf4j.LoggerFactory;
 @PluginDescriptor(name = "Hardcore Death Cannon",
     internalName = "hardcore-death-cannon",
     description = "Play a cannon and memorial fanfare for Hardcore Worlds death broadcasts.",
-    tags = {"hardcore", "death", "broadcast"}, enabledByDefault = false)
+    tags = {"hardcore", "death", "broadcast"})
 public final class DeathCannonPlugin extends Plugin
 {
     private static final long SAVE_INTERVAL = TimeUnit.SECONDS.toNanos(30);
@@ -61,6 +62,7 @@ public final class DeathCannonPlugin extends Plugin
     @Inject private OverlayManager overlayManager;
     @Inject private DeathCannonOverlay overlay;
     @Inject private ScheduledExecutorService executor;
+    @Inject private AudioPlayer audioPlayer;
     @Inject private HiscoreClient hiscores;
     @Inject private ClientThread clientThread;
     @Inject private MouseManager mouseManager;
@@ -104,7 +106,7 @@ public final class DeathCannonPlugin extends Plugin
     @Override
     protected synchronized void startUp()
     {
-        audio = new CannonAudio();
+        audio = new CannonAudio(audioPlayer);
         if (!loadedSightings)
         {
             loadedSightings = true;
@@ -500,7 +502,6 @@ public final class DeathCannonPlugin extends Plugin
                 portraitRequests.clear();
                 seedPortraits = true;
                 active = null;
-                audio.stop();
                 break;
             default:
                 break;
@@ -517,9 +518,10 @@ public final class DeathCannonPlugin extends Plugin
         DeathBroadcast next = pending.poll();
         if (next != null)
         {
-            durationMs = TimeUnit.SECONDS.toMillis(Math.max(1, Math.min(15, config.popupSeconds())));
+            int popupSeconds = Math.max(1, Math.min(15, config.popupSeconds()));
+            durationMs = TimeUnit.SECONDS.toMillis(popupSeconds);
             startedAt = System.nanoTime();
-            audio.play(config.volume(), config.cannonSound(), config.memorialMusic());
+            audio.play(config.volume(), config.cannonSound(), config.memorialMusic(), popupSeconds);
         }
         active = next;
     }
