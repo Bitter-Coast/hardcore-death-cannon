@@ -37,7 +37,7 @@ public interface DeathCannonConfig extends Config
         description = "Size of the memorial. Hold Alt and drag a visible popup to move it.", position = 3)
     default int popupScale()
     {
-        return 70;
+        return 71;
     }
 
     @ConfigItem(keyName = "compactPopup", name = "Compact gravestone",

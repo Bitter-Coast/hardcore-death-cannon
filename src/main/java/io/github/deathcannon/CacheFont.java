@@ -3,6 +3,8 @@ package io.github.deathcannon;
 import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
@@ -63,15 +65,20 @@ final class CacheFont
         {
             return;
         }
-        // Keep small glyphs at their native pixel size when the line has room.
-        double nativeSize = 1 / graphics.getTransform().getScaleX();
-        double size = Math.min(Math.max(scale, nativeSize), (double) maxWidth / width);
+        AffineTransform transform = graphics.getTransform();
+        double pixelWidth = Math.floor(maxWidth * transform.getScaleX());
+        double fit = pixelWidth / width;
+        double requested = scale * transform.getScaleX();
+        double size = fit < 1 ? fit : Math.min(Math.max(1, Math.round(requested)), Math.floor(fit));
+        int left = (int) Math.round(transform.getTranslateX() + x * transform.getScaleX()
+            - (centered ? width * size / 2 : 0));
+        int baseline = (int) Math.round(transform.getTranslateY() + y * transform.getScaleY());
         BufferedImage atlas = colors.computeIfAbsent(color, this::tint);
         Graphics2D g = (Graphics2D) graphics.create();
         try
         {
-            g.translate(centered ? Math.round(x - width * size / 2) : x, y);
-            g.scale(size, size);
+            g.setTransform(new AffineTransform());
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
             int pen = 0;
             int ascent = Byte.toUnsignedInt(metrics[256]);
             for (byte code : text)
@@ -84,7 +91,10 @@ final class CacheFont
                 int h = Byte.toUnsignedInt(metrics[offset + 3]);
                 int sx = id % 16 * CELL;
                 int sy = id / 16 * CELL;
-                g.drawImage(atlas, dx, dy, dx + w, dy + h, sx, sy, sx + w, sy + h, null);
+                g.drawImage(atlas,
+                    left + (int) Math.round(dx * size), baseline + (int) Math.round(dy * size),
+                    left + (int) Math.round((dx + w) * size), baseline + (int) Math.round((dy + h) * size),
+                    sx, sy, sx + w, sy + h, null);
                 pen += Byte.toUnsignedInt(metrics[id]);
             }
         }

@@ -28,7 +28,8 @@ final class DeathCannonOverlay extends Overlay
     private static final int WIDTH = 396;
     private static final int HEIGHT = 246;
     private static final int COMPACT_SIZE = 128;
-    private static final int FIXED_CARD_WIDTH = 320;
+    private static final int MIN_FULL_HEIGHT = 126;
+    private static final int CARD_BASE_WIDTH = 320;
     private static final Color INK = new Color(35, 24, 13);
     private static final Color CLANMATE = new Color(21, 61, 106);
     private static final Color RED = new Color(135, 24, 9);
@@ -36,6 +37,7 @@ final class DeathCannonOverlay extends Overlay
     private static final CacheFont REGULAR = new CacheFont("regular");
     private static final CacheFont BOLD = new CacheFont("bold");
     private static final DateTimeFormatter SEEN_DATE = DateTimeFormatter.ofPattern("MM-dd-yyyy");
+    private static final DateTimeFormatter SHORT_SEEN_DATE = DateTimeFormatter.ofPattern("MM-dd-yy");
     private static final BufferedImage SCROLL = load("memorial-scroll.png");
     private static final int GRAVESTONE_SPRITE = 8920;
     private static final BufferedImage TOTAL = load("skills/overall.png");
@@ -84,14 +86,14 @@ final class DeathCannonOverlay extends Overlay
         boolean compact = config.compactPopup();
         int baseWidth = compact ? COMPACT_SIZE : WIDTH;
         int baseHeight = compact ? COMPACT_SIZE : HEIGHT;
-        int scaleBaseWidth = !compact && !client.isResized() ? FIXED_CARD_WIDTH : baseWidth;
+        int scaleBaseWidth = compact ? COMPACT_SIZE : CARD_BASE_WIDTH;
         int requestedWidth = scaleBaseWidth * Math.max(50, Math.min(150, config.popupScale())) / 100;
         int width = Math.min(requestedWidth, Math.min(viewportWidth - 16, (viewportHeight - 20) * baseWidth / baseHeight));
-        if (width >= (compact ? 48 : 160))
+        if (width >= (compact ? 48 : 160) && (compact || viewportHeight >= MIN_FULL_HEIGHT + 20))
         {
             int x = width / 2;
             int y = 8;
-            int height = (int) Math.round((double) width * baseHeight / baseWidth);
+            int height = compact ? width : Math.max(MIN_FULL_HEIGHT, (int) Math.round((double) width * HEIGHT / WIDTH));
             TopSkill top = compact ? null : death.topSkill;
             if (drawnDeath != death || drawnSkill != top || drawnCompact != compact
                 || drawnWidth != width)
@@ -164,10 +166,11 @@ final class DeathCannonOverlay extends Overlay
             {
                 BOLD.draw(g, CLANMATE, "Clanmate", 198, 23, 1.4, 100, true);
             }
-            drawStat(g, TOTAL, death.levelText, 135);
+            int statCenter = width < 205 ? 220 : 198;
+            drawStat(g, TOTAL, death.levelText, statCenter, 135);
             if (top != null)
             {
-                drawStat(g, ICONS.get(top.skill), Integer.toString(top.level), 160);
+                drawStat(g, ICONS.get(top.skill), Integer.toString(top.level), statCenter, 160);
             }
 
             PlayerSighting sighting = death.sighting;
@@ -175,13 +178,17 @@ final class DeathCannonOverlay extends Overlay
             {
                 ZonedDateTime when = sighting.time.atZone(ZoneId.systemDefault());
                 BOLD.draw(g, INK, death.lastSeen ? "Last seen" : "Seen", 28, 128, 1.5, 123, false);
-                BOLD.draw(g, INK, SEEN_DATE.format(when), 28, 154, 1.85, 123, false);
-                BOLD.draw(g, INK, "World", 28, 179, 1.55, 52, false);
-                BOLD.draw(g, INK, Integer.toString(sighting.world), 84, 179, 1.85, 67, false);
-                BOLD.draw(g, INK, sighting.displayLocation(), 28, 198, 1.65, 123, false);
+                String date = SEEN_DATE.format(when);
+                if (BOLD.width(date) > 123 * width / WIDTH)
+                {
+                    date = SHORT_SEEN_DATE.format(when);
+                }
+                BOLD.draw(g, INK, date, 28, 154, 1.85, 123, false);
+                BOLD.draw(g, INK, "World " + sighting.world, 28, 179, 1.55, 145, false);
+                drawLocation(g, sighting.displayLocation(), width);
                 drawContained(g, sighting.portrait, 259, 48, 134, 142);
             }
-            BOLD.draw(g, INK, death.cause, 198, sighting == null ? 204 : 224, 1.65, 318, true);
+            BOLD.draw(g, INK, death.cause, 198, sighting == null ? 204 : 228, 1.65, 318, true);
         }
         finally
         {
@@ -206,10 +213,28 @@ final class DeathCannonOverlay extends Overlay
         }
     }
 
-    private static void drawStat(Graphics2D g, BufferedImage icon, String value, int y)
+    private static void drawLocation(Graphics2D graphics, String location, int cardWidth)
+    {
+        // The location row sits below the stats and portrait, so it can use the full parchment.
+        int textWidth = 340 * cardWidth / WIDTH;
+        int nativeWidth = BOLD.width(location);
+        int scale = Math.max(1, Math.min(cardWidth / 220, textWidth / Math.max(1, nativeWidth)));
+        if (nativeWidth > textWidth)
+        {
+            while (BOLD.width(location + "...") > textWidth)
+            {
+                location = location.substring(0, location.length() - 1).stripTrailing();
+            }
+            location += "...";
+        }
+
+        BOLD.draw(graphics, INK, location, 28, 203, scale * WIDTH / (double) cardWidth, 340, false);
+    }
+
+    private static void drawStat(Graphics2D g, BufferedImage icon, String value, int center, int y)
     {
         int width = (int) Math.round(BOLD.width(value) * 1.85);
-        int left = 198 - (23 + width) / 2;
+        int left = center - (23 + width) / 2;
         drawContained(g, icon, left, y, 21, 21);
         BOLD.draw(g, INK, value, left + 23, y + 19, 1.85, 62, false);
     }
