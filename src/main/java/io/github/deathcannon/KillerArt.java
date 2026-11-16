@@ -175,7 +175,6 @@ class KillerArt
             {
                 // The player in the scene is the evidence, so it stands even when the model cannot be drawn.
                 death.killerIsPlayer = true;
-                death.killerTile = player.getWorldLocation();
                 attach(death, PlayerPortrait.render(player.getModel(), SIZE, 1, 1), true);
                 return true;
             }

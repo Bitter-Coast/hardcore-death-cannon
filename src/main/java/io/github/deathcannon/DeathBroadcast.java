@@ -5,13 +5,13 @@ import java.math.BigDecimal;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import net.runelite.api.coords.WorldPoint;
 
 final class DeathBroadcast
 {
     private static final String PLAYER_AND_LEVEL =
         "([a-z0-9 _-]{1,12})\\s*\\(((?:\\d{1,4}|\\d,\\d{3})|\\d(?:\\.\\d{1,3})?k)\\)";
-    private static final String HIT = "(?:a|an) ([\\d,]+) damage hit\\b.*";
+    /** The killing blow, then the region the broadcast names, for example {@code in Karamja} or {@code in the Wilderness}. */
+    private static final String HIT = "(?:a|an) ([\\d,]+) damage hit\\b(?:.*? in (?:the )?(.+?)|.*?)[.!]?";
     private static final Pattern NAMED_KILLER = Pattern.compile(
         "(.+?) killed " + PLAYER_AND_LEVEL + " with " + HIT, Pattern.CASE_INSENSITIVE);
     private static final Pattern UNNAMED_KILLER = Pattern.compile(
@@ -27,7 +27,8 @@ final class DeathBroadcast
     final String killer;
     /** The killing blow as printed in the broadcast, for example {@code 12} or {@code 1,024}. */
     final String damage;
-    final boolean lastSeen;
+    /** The region named at the end of the broadcast, without a leading "the", or null when it names none. */
+    final String region;
     final boolean clanmate;
     final PlayerSighting sighting;
     volatile TopSkill topSkill;
@@ -41,33 +42,29 @@ final class DeathBroadcast
     volatile boolean killerIsPlayer;
     /** The killer was seen as a player on a Hardcore World before this broadcast. */
     volatile boolean killerSeen;
-    /** Where a player killer stood in the scene, or null. */
-    volatile WorldPoint killerTile;
-    /** The client's scene map around the sighting, or null when that tile was not in the loaded scene. */
-    volatile SceneMap sceneMap;
 
-    private DeathBroadcast(String player, String levelText, int level, String killer, String damage,
-        PlayerSighting sighting, boolean lastSeen, boolean clanmate)
+    private DeathBroadcast(String player, String levelText, int level, String killer, String damage, String region,
+        PlayerSighting sighting, boolean clanmate)
     {
         this.player = player;
         this.levelText = levelText;
         this.level = level;
         this.killer = killer;
         this.damage = damage;
-        this.lastSeen = lastSeen;
+        this.region = region;
         this.clanmate = clanmate;
         this.sighting = sighting;
     }
 
-    DeathBroadcast withSighting(PlayerSighting sighting, boolean lastSeen)
+    DeathBroadcast withSighting(PlayerSighting sighting)
     {
         return sighting == null ? this
-            : new DeathBroadcast(player, levelText, level, killer, damage, sighting, lastSeen, clanmate);
+            : new DeathBroadcast(player, levelText, level, killer, damage, region, sighting, clanmate);
     }
 
     DeathBroadcast withClanmate(boolean clanmate)
     {
-        return clanmate ? new DeathBroadcast(player, levelText, level, killer, damage, sighting, lastSeen, true) : this;
+        return clanmate ? new DeathBroadcast(player, levelText, level, killer, damage, region, sighting, true) : this;
     }
 
     boolean abbreviated()
@@ -88,27 +85,15 @@ final class DeathBroadcast
         }
     }
 
-    /** A player killer with the killer or the victim known to be in the Wilderness. */
+    /** A killer known to be a player, in a death the broadcast places in the Wilderness. */
     boolean wildernessPk()
     {
-        return killerIsPlayer && (inWilderness(killerTile) || (sighting != null && inWilderness(sighting.tile)));
-    }
-
-    /** The surface Wilderness north of the ditch and the Wilderness dungeons below it. */
-    static boolean inWilderness(WorldPoint tile)
-    {
-        if (tile == null)
-        {
-            return false;
-        }
-        int x = tile.getX();
-        int y = tile.getY();
-        return (x >= 2944 && x < 3392 && y >= 3523 && y < 3968) || (x >= 2944 && x < 3456 && y >= 9920 && y < 10368);
+        return killerIsPlayer && "wilderness".equalsIgnoreCase(region);
     }
 
     static DeathBroadcast preview(String name, int level)
     {
-        return new DeathBroadcast(name, Integer.toString(level), level, "Goblin", "12", null, false, false);
+        return new DeathBroadcast(name, Integer.toString(level), level, "Goblin", "12", null, null, false);
     }
 
     static DeathBroadcast parse(String message)
@@ -130,6 +115,8 @@ final class DeathBroadcast
         String display = match.group(victim + 1).toLowerCase(Locale.ROOT);
         String damage = match.group(victim + 2);
         String killer = named ? match.group(1).trim() : null;
+        String region = match.group(victim + 3);
+        region = region == null || region.isBlank() ? null : region.trim();
         boolean abbreviated = display.endsWith("k");
         int level = abbreviated
             ? new BigDecimal(display.substring(0, display.length() - 1)).movePointRight(3).intValueExact()
@@ -138,7 +125,7 @@ final class DeathBroadcast
         boolean possible = abbreviated ? TotalPolicy.abbreviatedRange(display) != null
             : level > 0 && level <= TotalPolicy.MAX_TOTAL;
         return player.isEmpty() || !possible
-            ? null : new DeathBroadcast(player, display, level, killer, damage, null, false, false);
+            ? null : new DeathBroadcast(player, display, level, killer, damage, region, null, false);
     }
 
     static String plainText(String message)

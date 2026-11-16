@@ -108,7 +108,7 @@ public class KillCamRenderTest
         if (sighting)
         {
             death = death.withSighting(new PlayerSighting(PlayerPortrait.render(quad()), Instant.EPOCH, 301,
-                new WorldPoint(3222, 3218, 0)), true);
+                new WorldPoint(3222, 3218, 0)));
         }
         return death;
     }
@@ -150,6 +150,27 @@ public class KillCamRenderTest
             height);
         assertNotNull(noArt);
         write(noArt, "killcam-fallback-227.png");
+    }
+
+    /** README previews at twice the base size, drawn by the production card renderer. */
+    @Test
+    public void rendersRegionPreviews() throws IOException
+    {
+        int width = DeathCannonOverlay.WIDTH * 2;
+        int height = DeathCannonOverlay.HEIGHT * 2;
+        String[][] previews = {
+            {"region-asgarnia", "Hardcore Hal (1,512) was killed by a 31 damage hit in Asgarnia."},
+            {"region-kharidian-desert", "Desert Rat (1.2k) was killed by a 17 damage hit in the Kharidian Desert."},
+            {"wilderness-pk", "Pker killed Tester (1,500) with a 38 damage hit in the Wilderness."},
+        };
+        for (String[] preview : previews)
+        {
+            DeathBroadcast death = DeathBroadcast.parse(preview[1]);
+            death.killerIsPlayer = death.killer != null;
+            death.topSkill = TopSkill.choose(null, net.runelite.api.Skill.SLAYER, 85, 3_300_000);
+            write(DeathCannonOverlay.renderCard(death, TotalPolicy.displayTotal(death), death.topSkill, null,
+                width, height), preview[0] + "-preview@2x.png");
+        }
     }
 
     private static void write(BufferedImage image, String name) throws IOException

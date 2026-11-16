@@ -1,15 +1,15 @@
 package io.github.deathcannon;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.awt.image.BufferedImage;
 import java.lang.reflect.Proxy;
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,52 +25,10 @@ import org.junit.Test;
 
 public class DeathLocationTest
 {
-    private static final int MAP_SIZE = SceneMap.MARGIN * 2 + SceneMap.SCENE * SceneMap.TILE;
-    private static final int TERRAIN = 0x506040;
-    private static final int MARK = 0xff00ff;
-    private static final WorldPoint LUMBRIDGE = new WorldPoint(3222, 3218, 0);
     private static final WorldPoint WILDERNESS = new WorldPoint(3100, 3700, 0);
-
-    /** A scene map laid out like the client's, with one scene tile painted. */
-    private static int[] sceneWithTile(int sceneX, int sceneY)
-    {
-        int[] pixels = new int[MAP_SIZE * MAP_SIZE];
-        Arrays.fill(pixels, TERRAIN);
-        int left = SceneMap.MARGIN + sceneX * 4;
-        int top = SceneMap.MARGIN + (103 - sceneY) * 4;
-        for (int y = top; y < top + 4; y++)
-        {
-            Arrays.fill(pixels, y * MAP_SIZE + left, y * MAP_SIZE + left + 4, MARK);
-        }
-        return pixels;
-    }
-
-    @Test
-    public void mapMarkerLandsOnTheSightedTile()
-    {
-        // Centre, south-west corner and north-east corner of the scene.
-        for (int[] tile : new int[][] {{54, 50}, {0, 0}, {103, 103}})
-        {
-            SceneMap map = SceneMap.crop(sceneWithTile(tile[0], tile[1]), MAP_SIZE, MAP_SIZE, tile[0], tile[1]);
-            assertEquals(MARK, map.image.getRGB(map.markerX, map.markerY) & 0xffffff);
-            assertEquals(MARK, map.image.getRGB(map.markerX + 3, map.markerY + 3) & 0xffffff);
-            if (map.markerX > 0)
-            {
-                assertEquals(TERRAIN, map.image.getRGB(map.markerX - 1, map.markerY) & 0xffffff);
-            }
-        }
-        SceneMap centre = SceneMap.crop(sceneWithTile(54, 50), MAP_SIZE, MAP_SIZE, 54, 50);
-        assertEquals(SceneMap.COLUMNS * 2 - 2, centre.markerX);
-    }
-
-    @Test
-    public void tilesOutsideTheSceneHaveNoMap()
-    {
-        int[] pixels = sceneWithTile(10, 10);
-        assertNull(SceneMap.crop(pixels, MAP_SIZE, MAP_SIZE, -1, 10));
-        assertNull(SceneMap.crop(pixels, MAP_SIZE, MAP_SIZE, 10, 104));
-        assertNull(SceneMap.crop(null, MAP_SIZE, MAP_SIZE, 10, 10));
-    }
+    /** Every region name in the cache's Leagues area enum 3412, as the broadcasts spell them. */
+    private static final String[] REGIONS = {"Misthalin", "Karamja", "Asgarnia", "Kandarin", "Morytania",
+        "Kharidian Desert", "Tirannwn", "Fremennik Province", "Wilderness", "Kourend & Kebos", "Varlamore"};
 
     private static BufferedImage card(DeathBroadcast death)
     {
@@ -78,42 +36,82 @@ public class DeathLocationTest
             DeathCannonOverlay.WIDTH, DeathCannonOverlay.HEIGHT);
     }
 
-    private static DeathBroadcast seen(String message, WorldPoint tile)
+    private static DeathBroadcast seen(String message)
     {
-        return DeathBroadcast.parse(message).withSighting(new PlayerSighting(null, Instant.EPOCH, 301, tile), true);
+        // A sighting far from the broadcast region: it may supply a portrait, never the place of death.
+        return DeathBroadcast.parse(message).withSighting(new PlayerSighting(null, Instant.EPOCH, 301, WILDERNESS));
+    }
+
+    /** Pixels in the view with the Leagues sprites' exact land and region colours, which nothing else uses. */
+    private static int mapPixels(BufferedImage card, int rgb)
+    {
+        int count = 0;
+        for (int y = 67; y < 235; y++)
+        {
+            for (int x = 9; x < DeathCannonOverlay.WIDTH - 9; x++)
+            {
+                if ((card.getRGB(x, y) & 0xffffff) == rgb)
+                {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private static int land(BufferedImage card)
+    {
+        return mapPixels(card, 0x36302e);
     }
 
     @Test
-    public void overlayMarksTheMapTileAndDrawsNoMapWithoutALocation()
+    public void everyCacheRegionHasABroadMap()
     {
-        DeathBroadcast death = seen("Tester (1,500) was killed by a 31 damage hit.", LUMBRIDGE);
-        death.sceneMap = SceneMap.crop(sceneWithTile(54, 50), MAP_SIZE, MAP_SIZE, 54, 50);
-        BufferedImage withMap = card(death);
-        // The view's map starts at (8, 67), scaled by MAP_SCALE; sample the middle of the marked tile.
-        int mx = (int) (8 + (death.sceneMap.markerX + 2) * DeathCannonOverlay.MAP_SCALE);
-        int my = (int) (67 + (death.sceneMap.markerY + 2) * DeathCannonOverlay.MAP_SCALE);
-        assertEquals(0xffffff, withMap.getRGB(mx, my) & 0xffffff);
-        assertEquals(TERRAIN, withMap.getRGB(mx + 60, my) & 0xffffff);
-
-        BufferedImage noMap = card(DeathBroadcast.parse("Tester (1,500) was killed by a 31 damage hit."));
-        assertNotEquals(TERRAIN, noMap.getRGB(mx + 60, my) & 0xffffff);
+        for (String region : REGIONS)
+        {
+            BufferedImage map = RegionMap.of(region, 302, 168);
+            assertNotNull(region, map);
+            // The crop keeps the view's aspect, so the region is never stretched.
+            assertEquals(region, 302.0 / 168, (double) map.getWidth() / map.getHeight(), 0.03);
+        }
+        assertNull(RegionMap.of("Tutorial Island", 302, 168));
+        assertNull(RegionMap.of(null, 302, 168));
     }
 
     @Test
-    public void wildernessBoundsCoverTheSurfaceAndDungeonsOnly()
+    public void farIslandsDoNotShrinkTheMainLandmass()
     {
-        assertTrue(DeathBroadcast.inWilderness(WILDERNESS));
-        assertTrue(DeathBroadcast.inWilderness(new WorldPoint(3200, 10100, 0)));
-        assertFalse(DeathBroadcast.inWilderness(new WorldPoint(3094, 3491, 0)));
-        assertFalse(DeathBroadcast.inWilderness(LUMBRIDGE));
-        assertFalse(DeathBroadcast.inWilderness(null));
+        BufferedImage image = new BufferedImage(40, 20, BufferedImage.TYPE_INT_ARGB);
+        for (int y = 2; y < 12; y++)
+        {
+            for (int x = 3; x < 13; x++)
+            {
+                image.setRGB(x, y, 0xff800000);
+            }
+        }
+        image.setRGB(38, 18, 0xff800000);
+        assertArrayEquals(new int[] {3, 2, 13, 12}, RegionMap.largestLandmass(image));
+    }
+
+    @Test
+    public void regionMapComesOnlyFromTheBroadcast()
+    {
+        BufferedImage asgarnia = card(seen("Tester (1,500) was killed by a 31 damage hit in Asgarnia."));
+        assertTrue("the world map is drawn", land(asgarnia) > 2000);
+        assertTrue("the broadcast region is highlighted", mapPixels(asgarnia, 0x520000) > 500);
+
+        // No region in the broadcast: the sighting does not stand in, so there is no map.
+        assertEquals(0, land(card(seen("Tester (1,500) was killed by a 31 damage hit."))));
+        // A named region without a bundled map is shown as text only.
+        DeathBroadcast unknown = seen("Tester (1,500) was killed by a 31 damage hit in Tutorial Island.");
+        assertEquals("Tutorial Island", unknown.region);
+        assertEquals(0, land(card(unknown)));
     }
 
     @Test
     public void wildernessPkDrawsTheSkullLeftOfTheHitsplat()
     {
-        String message = "Pker killed Tester (1,500) with a 38 damage hit.";
-        DeathBroadcast death = seen(message, WILDERNESS);
+        DeathBroadcast death = seen("Pker killed Tester (1,500) with a 38 damage hit in the Wilderness.");
         assertFalse("an unconfirmed killer is not a PK", death.wildernessPk());
         death.killerIsPlayer = true;
         assertTrue(death.wildernessPk());
@@ -152,9 +150,12 @@ public class DeathLocationTest
         assertTrue("hitsplat right of centre", redRight > 200);
         assertEquals("no hitsplat left of centre", 0, redLeft);
 
-        DeathBroadcast town = seen(message, LUMBRIDGE);
+        DeathBroadcast town = seen("Pker killed Tester (1,500) with a 38 damage hit in Misthalin.");
         town.killerIsPlayer = true;
         assertFalse("a player killer outside the Wilderness is not a Wilderness PK", town.wildernessPk());
+        DeathBroadcast nowhere = seen("Pker killed Tester (1,500) with a 38 damage hit.");
+        nowhere.killerIsPlayer = true;
+        assertFalse("a sighting in the Wilderness does not make a Wilderness PK", nowhere.wildernessPk());
     }
 
     @SuppressWarnings("unchecked")
@@ -187,7 +188,7 @@ public class DeathLocationTest
 
     private static DeathBroadcast classify(KillerArt art, String killer, boolean seen)
     {
-        DeathBroadcast death = DeathBroadcast.parse(killer + " killed Tester (1,500) with a 38 damage hit.");
+        DeathBroadcast death = DeathBroadcast.parse(killer + " killed Tester (1,500) with a 38 damage hit in the Wilderness.");
         death.killerSeen = seen;
         art.request(death);
         art.tick();
@@ -204,7 +205,6 @@ public class DeathLocationTest
 
         Map<String, Object> values = new HashMap<>();
         values.put("getName", "Pker");
-        values.put("getWorldLocation", WILDERNESS);
         DeathBroadcast scene = classify(killerArt(List.of(KillCamRenderTest.stub(Player.class, values))), "Pker", false);
         assertTrue("a player in the scene is the killer", scene.killerIsPlayer);
         assertTrue(scene.wildernessPk());

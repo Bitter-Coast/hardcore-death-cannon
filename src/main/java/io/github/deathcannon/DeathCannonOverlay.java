@@ -50,6 +50,8 @@ final class DeathCannonOverlay extends Overlay
     private static final Color GREY = new Color(178, 168, 150);
     private static final Color CLANMATE = new Color(128, 196, 255);
     private static final Color SHADOW = Color.BLACK;
+    /** Behind the region map, where the Leagues sprites are transparent. */
+    private static final Color REGION_SEA = new Color(27, 34, 40);
     private static final CacheFont REGULAR = new CacheFont("regular");
     private static final CacheFont BOLD = new CacheFont("bold");
     private static final int GRAVESTONE_SPRITE = 8920;
@@ -63,8 +65,6 @@ final class DeathCannonOverlay extends Overlay
     /** Horizontal offsets from the view centre of the skull and the hitsplat in the Wilderness PK layout. */
     static final int PK_SKULL_X = -52;
     static final int PK_SPLAT_X = 52;
-    /** Layout units per scene map pixel; 51 x 28 tiles fill the view. */
-    static final double MAP_SCALE = 1.5;
     /** Hiscores boss icons, exported from the cache sprites RuneLite's Hiscores panel shows. */
     private static final Map<HiscoreSkill, BufferedImage> BOSS_ICONS = loadBossIcons();
     /** RuneLite's own Hardcore Worlds Hiscores icon, shipped in the client; omitted if the client drops it. */
@@ -121,7 +121,7 @@ final class DeathCannonOverlay extends Overlay
         String total = TotalPolicy.displayTotal(death);
         TopSkill top = compact || !config.showHighestSkill() ? null : death.topSkill;
         BossKc boss = compact || !config.showBossKc() ? null : death.bossKc;
-        Object[] key = {death, compact, width, total, top, boss, death.killerArt, death.killerIsPlayer, death.killerTile};
+        Object[] key = {death, compact, width, total, top, boss, death.killerArt, death.killerIsPlayer};
         if (!Arrays.equals(key, drawnKey))
         {
             card = compact ? renderGravestone(death, total, width, gravestone)
@@ -297,28 +297,23 @@ final class DeathCannonOverlay extends Overlay
         boolean pk = death.wildernessPk();
         // A Wilderness PK needs no player model: the skull stands in for the killer.
         BufferedImage art = pk ? null : death.killerArt;
-        SceneMap map = pk || art != null ? null : death.sceneMap;
-        int mapY = VIEW_Y + 1;
+        // Without killer art, the broadcast's own region is shown as a whole; no tile is marked.
+        BufferedImage map = pk || art != null ? null : RegionMap.of(death.region, VIEW_W - 2, VIEW_H - 2);
         if (map != null)
         {
+            g.setColor(REGION_SEA);
+            g.fillRect(VIEW_X + 1, VIEW_Y + 1, VIEW_W - 2, VIEW_H - 2);
             Graphics2D m = (Graphics2D) g.create();
             try
             {
-                m.clipRect(VIEW_X, VIEW_Y, VIEW_W, VIEW_H);
-                m.translate(VIEW_X, mapY);
-                m.scale(MAP_SCALE, MAP_SCALE);
-                m.drawImage(map.image, 0, 0, null);
-                // The marked tile, outlined like RuneLite's Instance Map player dot.
-                m.setColor(SHADOW);
-                m.fillRect(map.markerX - 1, map.markerY - 1, SceneMap.TILE + 2, SceneMap.TILE + 2);
-                m.setColor(WHITE);
-                m.fillRect(map.markerX, map.markerY, SceneMap.TILE, SceneMap.TILE);
+                m.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+                m.drawImage(map, VIEW_X + 1, VIEW_Y + 1, VIEW_W - 2, VIEW_H - 2, null);
             }
             finally
             {
                 m.dispose();
             }
-            // Shade the top and bottom so the location and the killer stay legible over bright terrain.
+            // Shade the top and bottom so the region and the killer stay legible over the map.
             g.setColor(new Color(0, 0, 0, 120));
             g.fillRect(VIEW_X, VIEW_Y, VIEW_W, 24);
             g.fillRect(VIEW_X, VIEW_Y + VIEW_H - 26, VIEW_W, 26);
@@ -352,11 +347,10 @@ final class DeathCannonOverlay extends Overlay
             drawContained(g, sighting.portrait, px, VIEW_Y + 6, 44, 44);
             locationRoom -= 54;
         }
-        if (sighting != null)
+        if (death.region != null)
         {
-            // A last sighting is where the player was seen, not where they died.
-            String place = (death.lastSeen ? "Last seen: " : "Seen at death: ") + sighting.displayLocation();
-            String location = ellipsize(REGULAR, place, locationRoom, 1.2, sx);
+            // Only the broadcast's region is shown; a sighting is never used as the place of death.
+            String location = ellipsize(REGULAR, death.region, locationRoom, 1.2, sx);
             text(g, REGULAR, GREY, location, VIEW_X + 6, VIEW_Y + 17, 1.2, locationRoom, false);
         }
 
@@ -368,17 +362,10 @@ final class DeathCannonOverlay extends Overlay
             drawContained(g, PK_SKULL, Math.round(cx) + PK_SKULL_X - skull / 2, viewMiddle - skull / 2, skull, skull);
             drawHitsplat(g, death.damage, splat, Math.round(cx) + PK_SPLAT_X, viewMiddle, 1.3, sx);
         }
-        else if (map != null)
-        {
-            int mx = (int) Math.round(VIEW_X + (map.markerX + SceneMap.TILE / 2.0) * MAP_SCALE);
-            int my = (int) Math.round(mapY + (map.markerY + SceneMap.TILE / 2.0) * MAP_SCALE);
-            // The hitsplat sits just above the marked tile, or below it near the top of the view.
-            int above = my - 28;
-            drawHitsplat(g, death.damage, splat, mx, above > VIEW_Y + 44 ? above : my + 28, 1, sx);
-        }
         else
         {
-            // Without killer art or a map the hitsplat carries the view on its own; no stand-in figure is drawn.
+            // Without killer art the hitsplat carries the view, over the region map when there is one;
+            // no stand-in figure is drawn.
             int splatCenter = art != null ? Math.round(VIEW_Y + VIEW_H * 0.46f) : viewMiddle;
             drawHitsplat(g, death.damage, splat, Math.round(cx), splatCenter, art != null ? 1 : 1.3, sx);
         }

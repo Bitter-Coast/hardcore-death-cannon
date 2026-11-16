@@ -18,9 +18,4 @@ final class PlayerSighting
         this.world = world;
         this.tile = tile;
     }
-
-    String displayLocation()
-    {
-        return WorldMapLabels.nearest(tile);
-    }
 }

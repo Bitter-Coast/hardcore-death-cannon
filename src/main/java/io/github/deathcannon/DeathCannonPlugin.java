@@ -20,11 +20,9 @@ import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.Player;
-import net.runelite.api.SpritePixels;
 import net.runelite.api.WorldType;
 import net.runelite.api.WorldView;
 import net.runelite.api.clan.ClanSettings;
-import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.ClientTick;
@@ -262,10 +260,9 @@ public final class DeathCannonPlugin extends Plugin
         {
             remember(nameKey(death.player), current);
         }
-        DeathBroadcast memorial = current != null ? death.withSighting(current, false)
-            : death.withSighting(sightings.get(nameKey(death.player)), true);
+        // The sighting supplies only the portrait; the place of death comes from the broadcast's region.
+        DeathBroadcast memorial = death.withSighting(current != null ? current : sightings.get(nameKey(death.player)));
         memorial.killerSeen = death.killer != null && sightings.containsKey(nameKey(death.killer));
-        memorial.sceneMap = captureMap(victim, memorial.sighting);
         // Capture the killer while it may still be in the scene, even if the decision waits.
         killerArt.request(memorial);
         String message = event.getMessage();
@@ -405,7 +402,7 @@ public final class DeathCannonPlugin extends Plugin
             }
             DeathBroadcast preview = DeathBroadcast.preview(local.getName(), client.getTotalLevel())
                 .withClanmate(isClanmate(local.getName()))
-                .withSighting(captureSighting(local), false);
+                .withSighting(captureSighting(local));
             preview.topSkill = TopSkill.fromLocalPlayer(client);
             killerArt.request(preview);
             pending.add(preview);
@@ -554,36 +551,6 @@ public final class DeathCannonPlugin extends Plugin
         BufferedImage portrait = capture(player);
         return portrait == null ? null : new PlayerSighting(portrait, Instant.now(), client.getWorld(),
             sightingTile(player));
-    }
-
-    /** Crops the client's scene map at the victim, or at their last sighting if it is in the loaded scene. */
-    private SceneMap captureMap(Player victim, PlayerSighting sighting)
-    {
-        try
-        {
-            WorldView view = client.getTopLevelWorldView();
-            LocalPoint point = null;
-            int plane = 0;
-            if (view != null && victim != null && victim.getWorldView() == view && victim.getWorldLocation() != null)
-            {
-                point = victim.getLocalLocation();
-                plane = victim.getWorldLocation().getPlane();
-            }
-            else if (view != null && !view.isInstance() && sighting != null && sighting.tile != null)
-            {
-                // Instanced sightings are stored as template tiles, which do not map onto the live scene.
-                point = LocalPoint.fromWorld(view, sighting.tile);
-                plane = sighting.tile.getPlane();
-            }
-            SpritePixels map = point == null ? null : client.drawInstanceMap(plane);
-            return map == null ? null
-                : SceneMap.crop(map.getPixels(), map.getWidth(), map.getHeight(), point.getSceneX(), point.getSceneY());
-        }
-        catch (RuntimeException ex)
-        {
-            LOG.debug("Could not draw the Hardcore Death Cannon scene map", ex);
-            return null;
-        }
     }
 
     private static WorldPoint sightingTile(Player player)

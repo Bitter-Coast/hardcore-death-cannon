@@ -33,6 +33,24 @@ public class DeathBroadcastTest
     }
 
     @Test
+    public void capturesTheTrailingRegion()
+    {
+        DeathBroadcast real = DeathBroadcast.parse("TzHaar-Xil killed EvScapes Fat(33) with a 2 damage hit in Karamja");
+        assertEquals("TzHaar-Xil", real.killer);
+        assertEquals("EvScapes Fat", real.player);
+        assertEquals("2", real.damage);
+        assertEquals("Karamja", real.region);
+        assertEquals("Wilderness",
+            DeathBroadcast.parse("Pker(120) killed Tester(70) with a 25 damage hit in the Wilderness.").region);
+        assertEquals("Kourend & Kebos",
+            DeathBroadcast.parse("Tester (1.2k) was killed by an 8 damage hit in Kourend & Kebos!").region);
+        assertEquals("Kharidian Desert",
+            DeathBroadcast.parse("Tester (99) was killed by a 3 damage hit from a Goblin in the Kharidian Desert.").region);
+        assertNull(DeathBroadcast.parse("Tester (99) was killed by a 3 damage hit from a Hill Giant.").region);
+        assertNull(DeathBroadcast.parse("Tester (99) was killed by a 3 damage hit.").region);
+    }
+
+    @Test
     public void rejectsImpossibleTotalsAndOtherMessages()
     {
         assertNull(DeathBroadcast.parse("Goblin killed Tester (2377) with a 1 damage hit."));
