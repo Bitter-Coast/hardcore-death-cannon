@@ -13,6 +13,7 @@ def runeLiteVersion = '1.13.6'
 dependencies {
     compileOnly "net.runelite:client:${runeLiteVersion}"
     testImplementation "net.runelite:client:${runeLiteVersion}"
+    testImplementation 'junit:junit:4.13.2'
     testRuntimeOnly "net.runelite:jshell:${runeLiteVersion}"
     testRuntimeOnly 'net.runelite:jagexauth:0.3'
 }
