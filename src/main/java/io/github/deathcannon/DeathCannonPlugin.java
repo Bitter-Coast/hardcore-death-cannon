@@ -10,6 +10,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -40,6 +41,7 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ClientShutdown;
 import net.runelite.client.hiscore.HiscoreClient;
 import net.runelite.client.hiscore.HiscoreEndpoint;
+import net.runelite.client.hiscore.HiscoreResult;
 import net.runelite.client.input.MouseAdapter;
 import net.runelite.client.input.MouseManager;
 import net.runelite.client.plugins.Plugin;
@@ -56,6 +58,8 @@ public final class DeathCannonPlugin extends Plugin
 {
     private static final long SAVE_INTERVAL = TimeUnit.SECONDS.toNanos(30);
     private static final int CAPTURES_PER_FRAME = 2;
+    /** How long an undecided abbreviated total waits for the Hiscores before the memorial plays anyway. */
+    private static final long LOOKUP_TIMEOUT_SECONDS = 5;
     private static final Logger LOG = LoggerFactory.getLogger(DeathCannonPlugin.class);
 
     @Inject private Client client;
@@ -67,6 +71,8 @@ public final class DeathCannonPlugin extends Plugin
     @Inject private HiscoreClient hiscores;
     @Inject private ClientThread clientThread;
     @Inject private MouseManager mouseManager;
+    @Inject private ConfigManager configManager;
+    @Inject private KillerArt killerArt;
 
     private final ArrayDeque<DeathBroadcast> pending = new ArrayDeque<>();
     private final Map<String, DeathBroadcast> replays = new LinkedHashMap<>();
@@ -94,6 +100,7 @@ public final class DeathCannonPlugin extends Plugin
     private boolean loadedSightings;
     private boolean seedPortraits;
     private CannonAudio audio;
+    private long generation;
     private volatile DeathBroadcast active;
     private volatile long startedAt;
     private volatile long durationMs;
@@ -107,6 +114,7 @@ public final class DeathCannonPlugin extends Plugin
     @Override
     protected synchronized void startUp()
     {
+        migrateThreshold();
         audio = new CannonAudio(audioPlayer);
         if (!loadedSightings)
         {
@@ -118,6 +126,27 @@ public final class DeathCannonPlugin extends Plugin
         overlayManager.add(overlay);
         overlay.loadGravestone();
         mouseManager.registerMouseListener(replayClicks);
+    }
+
+    /** The old setting played totals strictly above it; the new minimum plays totals at or above it. */
+    private void migrateThreshold()
+    {
+        String legacy = configManager.getConfiguration(DeathCannonConfig.GROUP, DeathCannonConfig.LEGACY_THRESHOLD);
+        if (legacy == null)
+        {
+            return;
+        }
+        try
+        {
+            int threshold = Integer.parseInt(legacy.trim());
+            configManager.setConfiguration(DeathCannonConfig.GROUP, DeathCannonConfig.MINIMUM_TOTAL,
+                Math.max(0, Math.min(TotalPolicy.MAX_TOTAL, threshold + 1)));
+        }
+        catch (NumberFormatException ex)
+        {
+            LOG.debug("Ignoring an unreadable Hardcore Death Cannon threshold: {}", legacy);
+        }
+        configManager.unsetConfiguration(DeathCannonConfig.GROUP, DeathCannonConfig.LEGACY_THRESHOLD);
     }
 
     private void loadSightings()
@@ -145,7 +174,9 @@ public final class DeathCannonPlugin extends Plugin
     protected synchronized void shutDown()
     {
         saveSightings();
+        generation++;
         pending.clear();
+        killerArt.clear();
         replays.clear();
         portraitRequests.clear();
         active = null;
@@ -208,7 +239,12 @@ public final class DeathCannonPlugin extends Plugin
         }
 
         DeathBroadcast death = DeathBroadcast.parse(event.getMessage());
-        if (death == null || death.level <= config.threshold())
+        if (death == null)
+        {
+            return;
+        }
+        TotalPolicy.Decision decision = TotalPolicy.decide(death, config.minimumTotal());
+        if (decision == TotalPolicy.Decision.HIDE)
         {
             return;
         }
@@ -218,32 +254,77 @@ public final class DeathCannonPlugin extends Plugin
             return;
         }
         death = death.withClanmate(clanmate);
-        PlayerSighting current = captureSighting(findPlayer(death.player));
+        Player victim = findPlayer(death.player);
+        PlayerSighting current = captureSighting(victim);
         if (current != null)
         {
             remember(nameKey(death.player), current);
         }
-        DeathBroadcast memorial = current != null ? death.withSighting(current, false)
-            : death.withSighting(sightings.get(nameKey(death.player)), true);
-        pending.add(memorial);
-        playNext();
-        rememberReplay(event.getMessage(), memorial);
-        if (config.compactPopup())
+        // The sighting supplies only the portrait; the place of death comes from the broadcast's region.
+        DeathBroadcast memorial = death.withSighting(current != null ? current : sightings.get(nameKey(death.player)));
+        memorial.killerSeen = death.killer != null && sightings.containsKey(nameKey(death.killer));
+        // Capture the killer while it may still be in the scene, even if the decision waits.
+        killerArt.request(memorial);
+        String message = event.getMessage();
+        if (decision == TotalPolicy.Decision.SHOW)
+        {
+            show(memorial, message);
+        }
+        boolean undecided = decision == TotalPolicy.Decision.UNKNOWN;
+        boolean wantsDetails = !config.compactPopup() && (config.showHighestSkill() || config.showBossKc());
+        if (!undecided && !memorial.abbreviated() && !wantsDetails)
         {
             return;
         }
-        hiscores.lookupAsync(death.player.replace('_', ' '), HiscoreEndpoint.HARDCORE_MAIN)
+        long started = generation;
+        // One request feeds the exact total, the highest skill and the highest boss KC.
+        CompletableFuture<HiscoreResult> lookup = hiscores.lookupAsync(death.player.replace('_', ' '),
+            HiscoreEndpoint.HARDCORE_MAIN);
+        (undecided ? lookup.orTimeout(LOOKUP_TIMEOUT_SECONDS, TimeUnit.SECONDS) : lookup)
             .whenComplete((result, error) ->
             {
                 if (error == null)
                 {
-                    memorial.topSkill = TopSkill.fromHiscores(result);
+                    enrich(memorial, result);
                 }
                 else
                 {
-                    LOG.debug("Could not look up the Hardcore Worlds top skill", error);
+                    LOG.debug("Could not look up the Hardcore Worlds Hiscores", error);
+                }
+                if (undecided)
+                {
+                    clientThread.invokeLater(() -> decideLater(memorial, message, started));
                 }
             });
+    }
+
+    static void enrich(DeathBroadcast memorial, HiscoreResult result)
+    {
+        if (result == null)
+        {
+            return;
+        }
+        memorial.hiscoreTotal = TopSkill.overallLevel(result);
+        memorial.topSkill = TopSkill.fromHiscores(result);
+        memorial.bossKc = BossKc.fromHiscores(result);
+    }
+
+    /** Settles an abbreviated total that straddled the minimum. Without a usable Hiscores total it plays. */
+    private synchronized void decideLater(DeathBroadcast memorial, String message, long started)
+    {
+        if (audio == null || started != generation
+            || TotalPolicy.decide(memorial, config.minimumTotal()) == TotalPolicy.Decision.HIDE)
+        {
+            return;
+        }
+        show(memorial, message);
+    }
+
+    private void show(DeathBroadcast memorial, String message)
+    {
+        pending.add(memorial);
+        playNext();
+        rememberReplay(message, memorial);
     }
 
     private void rememberReplay(String originalMessage, DeathBroadcast memorial)
@@ -321,10 +402,23 @@ public final class DeathCannonPlugin extends Plugin
             }
             DeathBroadcast preview = DeathBroadcast.preview(local.getName(), client.getTotalLevel())
                 .withClanmate(isClanmate(local.getName()))
-                .withSighting(captureSighting(local), false);
+                .withSighting(captureSighting(local));
             preview.topSkill = TopSkill.fromLocalPlayer(client);
+            killerArt.request(preview);
             pending.add(preview);
             playNext();
+            if (!config.compactPopup() && config.showBossKc())
+            {
+                // Boss kill counts are not stored locally. The preview keeps the client's own skill levels.
+                hiscores.lookupAsync(local.getName(), HiscoreEndpoint.HARDCORE_MAIN)
+                    .whenComplete((result, error) ->
+                    {
+                        if (error == null)
+                        {
+                            preview.bossKc = BossKc.fromHiscores(result);
+                        }
+                    });
+            }
         }
     }
 
@@ -499,6 +593,7 @@ public final class DeathCannonPlugin extends Plugin
     public synchronized void onClientTick(ClientTick event)
     {
         capturePortraits();
+        killerArt.tick();
         playNext();
     }
 
@@ -514,6 +609,7 @@ public final class DeathCannonPlugin extends Plugin
             case HOPPING:
             case LOGIN_SCREEN:
             case CONNECTION_LOST:
+                generation++;
                 pending.clear();
                 portraitRequests.clear();
                 seedPortraits = true;
